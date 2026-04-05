@@ -1,11 +1,13 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import Optional
 import uvicorn
 from modules.gemini_analyzer import analyze_with_gemini
 from modules.game_analyzer import analyze_game_metrics
 from modules.rag_system import get_recommendations
 from modules.visualizer import map_to_visualization
+from modules.face_analyzer import analyze_face_emotion, fuse_text_and_face
 import json
 import os
 from datetime import datetime
@@ -24,6 +26,7 @@ app.add_middleware(
 class AnalyzeRequest(BaseModel):
     user_input: str
     username: str
+    face_image_base64: Optional[str] = None
 
 class GameAnalyzeRequest(BaseModel):
     username: str
@@ -53,6 +56,18 @@ async def analyze(request: AnalyzeRequest):
         print("[STEP 1] Starting Gemini analysis...")
         metrics = analyze_with_gemini(request.user_input)
         print(f"[STEP 1] ✓ Metrics received: {metrics}")
+        
+        # Step 1b: Optional face emotion analysis
+        if request.face_image_base64:
+            print("[STEP 1b] Face image provided — running face emotion analysis...")
+            face_result = analyze_face_emotion(request.face_image_base64)
+            print(f"[STEP 1b] ✓ Face result: top={face_result.get('top_emotion')}, "
+                  f"detected={face_result.get('face_detected')}, "
+                  f"source={face_result.get('source')}")
+            metrics = fuse_text_and_face(metrics, face_result)
+            print(f"[STEP 1b] ✓ Fused metrics: {metrics}")
+        else:
+            print("[STEP 1b] No face image — using text-only analysis")
         
         # Step 2: Get recommendations
         print("[STEP 2] Getting recommendations based on metrics...")

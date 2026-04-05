@@ -47,8 +47,8 @@ class MindVizApp(QMainWindow):
         screen = InputScreen(username, self)
         self.clear_and_add(screen)
     
-    def show_loading_screen(self, text, username):
-        screen = LoadingScreen(text, username, self)
+    def show_loading_screen(self, text, username, face_image=None):
+        screen = LoadingScreen(text, username, self, face_image=face_image)
         self.clear_and_add(screen)
 
     def show_loading_screen_for_game(self, game_data, username, duration_seconds):

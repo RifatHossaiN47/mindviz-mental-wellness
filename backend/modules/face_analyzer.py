@@ -120,7 +120,7 @@ def _analyze_with_gemini_vision(image_base64: str) -> dict:
                 "note": "No face detected in image",
             }
 
-        # Normalise scores to sum to 1.0
+        # Normalize scores to sum to 1.0
         total = sum(parsed.get(e, 0) for e in EMOTION_LABELS)
         if total <= 0:
             total = 1.0

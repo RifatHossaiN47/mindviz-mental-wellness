@@ -264,7 +264,7 @@ class TestFuseTextAndFace(unittest.TestCase):
             "scores": {"happy": 1.0, "neutral": 0.0, "surprise": 0.0,
                        "sad": 0.0, "angry": 0.0, "fear": 0.0, "disgust": 0.0},
             "face_detected": True,
-            "wellness_contribution": 1.0,  # max wellness
+            "wellness_contribution": 1.0,  # max wellness → face_anxiety=0, face_mood=1, face_stress=0
             "source": "gemini",
         }
         # With text_weight=0, result should be purely face-based
@@ -273,6 +273,41 @@ class TestFuseTextAndFace(unittest.TestCase):
         self.assertAlmostEqual(result["anxiety"], 0.0, places=2)
         self.assertAlmostEqual(result["mood"], 1.0, places=2)
         self.assertAlmostEqual(result["stress"], 0.0, places=2)
+
+    def test_custom_weights_text_only(self):
+        text = {"anxiety": 0.6, "mood": 0.4, "stress": 0.7}
+        face = {
+            "top_emotion": "happy",
+            "scores": {"happy": 1.0, "neutral": 0.0, "surprise": 0.0,
+                       "sad": 0.0, "angry": 0.0, "fear": 0.0, "disgust": 0.0},
+            "face_detected": True,
+            "wellness_contribution": 0.9,
+            "source": "gemini",
+        }
+        # With text_weight=1.0, result should equal the original text metrics
+        result = fuse_text_and_face(text, face, text_weight=1.0, face_weight=0.0)
+        self.assertAlmostEqual(result["anxiety"], 0.6, places=2)
+        self.assertAlmostEqual(result["mood"], 0.4, places=2)
+        self.assertAlmostEqual(result["stress"], 0.7, places=2)
+
+    def test_custom_weights_equal_blend(self):
+        text = {"anxiety": 0.8, "mood": 0.2, "stress": 0.8}
+        # wellness=0.5 → face_anxiety=0.5, face_mood=0.5, face_stress=0.5
+        face = {
+            "top_emotion": "neutral",
+            "scores": {"happy": 0.0, "neutral": 1.0, "surprise": 0.0,
+                       "sad": 0.0, "angry": 0.0, "fear": 0.0, "disgust": 0.0},
+            "face_detected": True,
+            "wellness_contribution": 0.5,
+            "source": "deepface",
+        }
+        result = fuse_text_and_face(text, face, text_weight=0.5, face_weight=0.5)
+        # anxiety: 0.5*0.8 + 0.5*0.5 = 0.65
+        self.assertAlmostEqual(result["anxiety"], 0.65, places=2)
+        # mood: 0.5*0.2 + 0.5*0.5 = 0.35
+        self.assertAlmostEqual(result["mood"], 0.35, places=2)
+        # stress: 0.5*0.8 + 0.5*0.5 = 0.65
+        self.assertAlmostEqual(result["stress"], 0.65, places=2)
 
 
 # ── Tests: text-only path compatibility ───────────────────────────────────────

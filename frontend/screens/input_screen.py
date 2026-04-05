@@ -221,7 +221,7 @@ class InputScreen(QWidget):
         vbox.setContentsMargins(10, 10, 10, 10)
 
         # Section title
-        title = QLabel("📷 Face Analysis  (optional)")
+        title = QLabel("📷 Face Analysis (optional)")
         title.setFont(QFont("Arial", 13, QFont.Bold))
         title.setStyleSheet("color: #2E7D32; border: none;")
         vbox.addWidget(title)

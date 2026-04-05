@@ -6,12 +6,19 @@ class APIClient:
     def __init__(self, base_url="http://localhost:8000"):
         self.base_url = base_url
     
-    def analyze(self, user_input, username):
-        """Send text for analysis"""
+    def analyze(self, user_input, username, face_image_b64=None, face_consent=False):
+        """Send text (and optionally a face image) for analysis"""
         try:
+            payload = {
+                "user_input": user_input,
+                "username": username,
+                "face_consent": face_consent,
+            }
+            if face_consent and face_image_b64:
+                payload["face_image_b64"] = face_image_b64
             response = requests.post(
                 f"{self.base_url}/analyze",
-                json={"user_input": user_input, "username": username},
+                json=payload,
                 timeout=30
             )
             return response.json()

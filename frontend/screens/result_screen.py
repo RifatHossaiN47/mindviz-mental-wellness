@@ -208,6 +208,48 @@ class ResultScreen(QWidget):
         self.add_metric(right_layout, "Anxiety", metrics['anxiety'])
         self.add_metric(right_layout, "Mood", metrics['mood'])
         self.add_metric(right_layout, "Stress", metrics['stress'])
+
+        # Face emotion badge (shown only when face analysis was used)
+        face_emotion = self.result.get("face_emotion", {})
+        if face_emotion.get("enabled"):
+            expr = face_emotion.get("primary_expression", "").capitalize()
+            face_badge = QLabel(f"😊  Face expression detected: {expr}")
+            face_badge.setFont(QFont("Arial", 11, QFont.Bold))
+            face_badge.setStyleSheet(
+                "background-color: #E3F2FD; border: 1px solid #90CAF9; "
+                "border-radius: 8px; padding: 6px 10px; color: #1565C0;"
+            )
+            right_layout.addWidget(face_badge)
+
+        # Wellness indicator badge (non-diagnostic)
+        indicator = self.result.get("wellness_indicator", "")
+        if indicator:
+            _colours = {
+                "stable":     ("#E8F5E9", "#388E3C", "#2E7D32"),
+                "watch":      ("#FFF8E1", "#F9A825", "#E65100"),
+                "high-stress": ("#FFEBEE", "#E53935", "#B71C1C"),
+            }
+            bg, border, fg = _colours.get(indicator, ("#F5F5F5", "#999", "#333"))
+            wi_label = QLabel(f"🔔  Wellness indicator: {indicator.upper()}")
+            wi_label.setFont(QFont("Arial", 11, QFont.Bold))
+            wi_label.setStyleSheet(
+                f"background-color: {bg}; border: 1px solid {border}; "
+                f"border-radius: 8px; padding: 6px 10px; color: {fg};"
+            )
+            right_layout.addWidget(wi_label)
+
+        # Disclaimer (shown whenever face was used or always as good practice)
+        disclaimer_text = self.result.get(
+            "disclaimer",
+            "⚠️  This analysis is for informational purposes only and is NOT a medical diagnosis.",
+        )
+        disc_label = QLabel(disclaimer_text)
+        disc_label.setWordWrap(True)
+        disc_label.setFont(QFont("Arial", 9))
+        disc_label.setStyleSheet(
+            "color: #888; border: none; padding: 4px 0;"
+        )
+        right_layout.addWidget(disc_label)
         
         # Explanation box (Gemini-powered or fallback)
         if analysis and analysis.get('summary'):

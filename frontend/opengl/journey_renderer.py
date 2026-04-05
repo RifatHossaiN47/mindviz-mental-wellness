@@ -14,15 +14,24 @@ class JourneyWidget(QOpenGLWidget):
     """
     
     point_clicked = pyqtSignal(int)
+    point_hovered = pyqtSignal(int)
     
     def __init__(self, sessions, parent=None):
         super().__init__(parent)
         self.sessions = sessions
-        self.camera_angle = 0
+        self.camera_base_angle = 32.0
+        self.camera_sway_amplitude = 18.0
+        self.camera_sway_speed = 0.045
+        self.camera_radius = 20.0
+        self.camera_angle = self.camera_base_angle
         self.time = 0
         self.points = []
         self.selected_index = -1
         self.hover_index = -1
+        self.hover_pos = (0, 0)
+        self.camera_focus_x = 0.0
+        self.camera_focus_y = 5.0
+        self.camera_focus_z = 0.0
         self.setMouseTracking(True)
         
         self.calculate_points()
@@ -35,6 +44,11 @@ class JourneyWidget(QOpenGLWidget):
     def calculate_points(self):
         """Convert session data to rich 3D visualization points"""
         self.points = []
+
+        self.technique_counts = {}
+        for session in self.sessions:
+            tid = session.get('technique', 'unknown')
+            self.technique_counts[tid] = self.technique_counts.get(tid, 0) + 1
         
         for i, session in enumerate(self.sessions):
             initial = session.get('initial_metrics', {})
@@ -77,6 +91,12 @@ class JourneyWidget(QOpenGLWidget):
             # Technique name
             tech_id = session.get('technique', 'unknown')
             tech_name = self._format_tech_name(tech_id)
+
+            # Session duration (minutes)
+            duration_minutes = session.get('duration', 1)
+            if not isinstance(duration_minutes, (int, float)):
+                duration_minutes = 1
+            duration_minutes = int(max(1, duration_minutes))
             
             # Date
             date_str = session.get('date', '')
@@ -97,6 +117,10 @@ class JourneyWidget(QOpenGLWidget):
             mood_imp = improvement.get('mood', 0)
             stress_imp = improvement.get('stress', 0)
             overall_change = fin_wellbeing - init_wellbeing
+            prev_wellbeing = self.points[-1]['wellbeing'] if self.points else fin_wellbeing
+            start_wellbeing = self.points[0]['wellbeing'] if self.points else fin_wellbeing
+            delta_prev = fin_wellbeing - prev_wellbeing if self.points else 0.0
+            delta_from_start = fin_wellbeing - start_wellbeing
             
             self.points.append({
                 'position': [x, y, z],
@@ -105,13 +129,17 @@ class JourneyWidget(QOpenGLWidget):
                 'init_wellbeing': init_wellbeing,
                 'size': size,
                 'index': i,
+                'technique_id': tech_id,
                 'technique': tech_name,
                 'date': date_display,
                 'time': time_display,
+                'duration_minutes': duration_minutes,
                 'initial': initial,
                 'final': final,
                 'improvement': improvement,
                 'overall_change': overall_change,
+                'delta_prev': delta_prev,
+                'delta_from_start': delta_from_start,
                 'anxiety_change': anx_imp,
                 'mood_change': mood_imp,
                 'stress_change': stress_imp
@@ -183,17 +211,33 @@ class JourneyWidget(QOpenGLWidget):
         if not self.points:
             return
         
-        # Center camera on path
-        center_x = (len(self.points) - 1) * 5 / 2
-        center_y = 5
-        center_z = 0
-        
-        # Orbiting camera
-        radius = 22 + len(self.points) * 1.2
+        # Camera focuses on selected/hovered point and gently sways left-right.
+        if self.selected_index >= 0:
+            focus_idx = self.selected_index
+        elif self.hover_index >= 0:
+            focus_idx = self.hover_index
+        else:
+            focus_idx = len(self.points) - 1
+
+        focus_idx = max(0, min(focus_idx, len(self.points) - 1))
+        target_pos = self.points[focus_idx]['position']
+
+        follow_rate = 0.08
+        self.camera_focus_x += (target_pos[0] - self.camera_focus_x) * follow_rate
+        self.camera_focus_z += (target_pos[2] - self.camera_focus_z) * follow_rate
+
+        target_y = max(3.8, min(8.4, target_pos[1] * 0.6 + 2.0))
+        self.camera_focus_y += (target_y - self.camera_focus_y) * follow_rate
+
+        center_x = self.camera_focus_x
+        center_y = self.camera_focus_y
+        center_z = self.camera_focus_z
+
+        radius = self.camera_radius + min(10.0, len(self.points) * 0.55)
         cam_a = math.radians(self.camera_angle)
         cam_x = center_x + radius * math.cos(cam_a)
         cam_z = center_z + radius * math.sin(cam_a)
-        cam_y = 12 + math.sin(self.time * 0.001) * 1.5
+        cam_y = center_y + 6.8 + math.sin(self.time * 0.018) * 0.4
         
         gluLookAt(cam_x, cam_y, cam_z,
                   center_x, center_y, center_z,
@@ -837,10 +881,13 @@ class JourneyWidget(QOpenGLWidget):
         # Top bar - session count
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor(0, 0, 0, 130))
-        painter.drawRoundedRect(10, 10, 300, 36, 8, 8)
+        painter.drawRoundedRect(10, 10, 380, 52, 8, 8)
         painter.setPen(QColor(255, 255, 255))
         painter.setFont(QFont("Arial", 11, QFont.Bold))
-        painter.drawText(22, 34, f"Wellness Journey  \u2014  {len(self.points)} Sessions")
+        painter.drawText(22, 32, f"Wellness Journey  \u2014  {len(self.points)} Sessions")
+        painter.setPen(QColor(208, 215, 232))
+        painter.setFont(QFont("Arial", 8))
+        painter.drawText(22, 50, "Hover to inspect a session  |  Click to pin details")
         
         # Selected point detail panel — fully responsive
         if self.selected_index >= 0 and self.selected_index < len(self.points):
@@ -995,6 +1042,168 @@ class JourneyWidget(QOpenGLWidget):
             painter.setPen(QColor(200, 200, 210))
             painter.setFont(QFont("Arial", 9))
             painter.drawText(w - 205, h - 23, "Click a point for details")
+
+        # Hover card: richer context that follows the pointer.
+        if self.hover_index >= 0 and self.hover_index < len(self.points):
+            self._draw_hover_panel(painter, self.hover_index)
+
+    def _draw_hover_panel(self, painter, index):
+        """Draw rich hover details for a session near the mouse cursor."""
+        pt = self.points[index]
+        mx, my = self.hover_pos
+
+        w = self.width()
+        h = self.height()
+
+        panel_w = min(360, max(300, w - 24))
+        panel_h = 262
+
+        # Place panel near cursor while keeping it inside viewport.
+        px = mx + 18
+        py = my + 18
+        if px + panel_w > w - 10:
+            px = mx - panel_w - 18
+        if py + panel_h > h - 10:
+            py = h - panel_h - 10
+        px = max(10, px)
+        py = max(54, py)
+
+        init = pt.get("initial", {})
+        final = pt.get("final", {})
+        wb_before = pt.get("init_wellbeing", 0.5)
+        wb_after = pt.get("wellbeing", 0.5)
+        wb_delta = wb_after - wb_before
+        delta_prev = pt.get("delta_prev", 0.0)
+        delta_from_start = pt.get("delta_from_start", 0.0)
+        duration_min = int(pt.get("duration_minutes", 1))
+        tech_usage_count = self.technique_counts.get(pt.get("technique_id", "unknown"), 1)
+
+        metrics = [
+            ("Anxiety", init.get("anxiety", 0.5), final.get("anxiety", 0.5), True),
+            ("Mood", init.get("mood", 0.5), final.get("mood", 0.5), False),
+            ("Stress", init.get("stress", 0.5), final.get("stress", 0.5), True),
+        ]
+
+        # Determine strongest positive gain for quick insight.
+        ranked = []
+        for name, before, after, lower_better in metrics:
+            gain = (before - after) if lower_better else (after - before)
+            ranked.append((gain, name, before, after, lower_better))
+        ranked.sort(key=lambda item: item[0], reverse=True)
+        best_gain = ranked[0]
+
+        c = pt["color"]
+        accent = QColor(int(c[0] * 255), int(c[1] * 255), int(c[2] * 255))
+
+        # Card background.
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(0, 0, 0, 175))
+        painter.drawRoundedRect(px + 2, py + 2, panel_w, panel_h, 10, 10)
+
+        painter.setBrush(QColor(12, 15, 23, 242))
+        painter.drawRoundedRect(px, py, panel_w, panel_h, 10, 10)
+
+        painter.setBrush(accent)
+        painter.drawRoundedRect(px, py, panel_w, 36, 10, 10)
+        painter.drawRect(px, py + 22, panel_w, 14)
+
+        # Header.
+        painter.setPen(QColor(255, 255, 255))
+        painter.setFont(QFont("Arial", 10, QFont.Bold))
+        painter.drawText(px + 10, py + 20, f"Session {index + 1} Journey Snapshot")
+
+        painter.setPen(QColor(226, 232, 246))
+        painter.setFont(QFont("Arial", 8))
+        header_meta = f"{pt.get('date', '')}  {pt.get('time', '')}".strip()
+        painter.drawText(px + 10, py + 33, header_meta)
+
+        painter.setPen(QColor(205, 212, 230))
+        painter.setFont(QFont("Arial", 9, QFont.Bold))
+        tech = pt.get("technique", "Unknown")
+        fm = painter.fontMetrics()
+        tech_elide = fm.elidedText(f"Technique: {tech}", Qt.ElideRight, panel_w - 20)
+        painter.drawText(px + 10, py + 53, tech_elide)
+
+        y = py + 78
+        for name, before, after, lower_better in metrics:
+            raw_delta = after - before
+            good_shift = (before - after) if lower_better else (after - before)
+            sign = "+" if raw_delta > 0 else ""
+            if good_shift > 0.02:
+                delta_color = QColor(76, 200, 112)
+                trend = "improved"
+            elif good_shift < -0.02:
+                delta_color = QColor(245, 97, 97)
+                trend = "worse"
+            else:
+                delta_color = QColor(223, 198, 96)
+                trend = "stable"
+
+            painter.setPen(QColor(176, 186, 210))
+            painter.setFont(QFont("Arial", 8))
+            painter.drawText(px + 10, y, name)
+
+            painter.setPen(QColor(220, 225, 236))
+            painter.setFont(QFont("Arial", 8, QFont.Bold))
+            painter.drawText(px + 84, y, f"{int(before * 100)}% -> {int(after * 100)}%")
+
+            painter.setPen(delta_color)
+            painter.setFont(QFont("Arial", 8))
+            painter.drawText(px + 213, y, f"{sign}{int(raw_delta * 100)}% ({trend})")
+
+            y += 22
+
+        # Overall wellbeing progress bar.
+        painter.setPen(QColor(165, 175, 200))
+        painter.setFont(QFont("Arial", 8, QFont.Bold))
+        painter.drawText(px + 10, py + 152, "Overall Wellbeing")
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(41, 45, 57))
+        painter.drawRoundedRect(px + 10, py + 160, panel_w - 20, 8, 3, 3)
+        painter.setBrush(QColor(99, 181, 255, 120))
+        painter.drawRoundedRect(px + 10, py + 160, int((panel_w - 20) * wb_before), 8, 3, 3)
+        painter.setBrush(accent)
+        painter.drawRoundedRect(px + 10, py + 160, int((panel_w - 20) * wb_after), 8, 3, 3)
+
+        wb_sign = "+" if wb_delta > 0 else ""
+        wb_text = f"Before {int(wb_before * 100)}%  |  After {int(wb_after * 100)}%  ({wb_sign}{int(wb_delta * 100)}%)"
+        painter.setPen(QColor(222, 228, 241))
+        painter.setFont(QFont("Arial", 8))
+        painter.drawText(px + 10, py + 182, wb_text)
+
+        # Insight line.
+        gain_val, gain_name, _, _, _ = best_gain
+        if gain_val > 0.02:
+            insight = f"Best gain: {gain_name} improved by {int(gain_val * 100)}%"
+            insight_color = QColor(132, 234, 163)
+        elif gain_val < -0.02:
+            insight = f"Note: {gain_name} dropped by {int(abs(gain_val) * 100)}%"
+            insight_color = QColor(255, 146, 146)
+        else:
+            insight = "Balanced session: changes were small and steady"
+            insight_color = QColor(232, 214, 137)
+
+        painter.setPen(insight_color)
+        painter.setFont(QFont("Arial", 8, QFont.Bold))
+        painter.drawText(px + 10, py + 202, fm.elidedText(insight, Qt.ElideRight, panel_w - 20))
+
+        trend_prev_sign = "+" if delta_prev > 0 else ""
+        trend_start_sign = "+" if delta_from_start > 0 else ""
+
+        trend_line = (
+            f"Trend: vs previous {trend_prev_sign}{int(delta_prev * 100)}%"
+            f"  |  vs first {trend_start_sign}{int(delta_from_start * 100)}%"
+        )
+        context_line = f"Technique usage: {tech_usage_count}x  |  Session duration: {duration_min} min"
+
+        painter.setPen(QColor(186, 196, 220))
+        painter.setFont(QFont("Arial", 8))
+        painter.drawText(px + 10, py + 222, fm.elidedText(trend_line, Qt.ElideRight, panel_w - 20))
+        painter.drawText(px + 10, py + 240, fm.elidedText(context_line, Qt.ElideRight, panel_w - 20))
+
+        painter.setPen(QColor(130, 138, 160))
+        painter.drawText(px + 10, py + 256, "Move cursor across points to compare sessions quickly")
     
     # ===== Interaction =====
     
@@ -1017,6 +1226,28 @@ class JourneyWidget(QOpenGLWidget):
                     self.update()
         
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        """Handle hover state for richer point insight cards."""
+        self.hover_pos = (event.x(), event.y())
+        hovered_idx = self._pick_point(event.x(), event.y())
+        if hovered_idx != self.hover_index:
+            self.hover_index = hovered_idx
+            self.point_hovered.emit(self.hover_index)
+            self.update()
+        else:
+            if self.hover_index >= 0:
+                self.update()
+
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event):
+        """Clear hover highlight when mouse leaves the widget."""
+        if self.hover_index != -1:
+            self.hover_index = -1
+            self.point_hovered.emit(-1)
+            self.update()
+        super().leaveEvent(event)
     
     def _pick_point(self, mouse_x, mouse_y):
         """Determine which point was clicked using OpenGL unprojection"""
@@ -1060,6 +1291,11 @@ class JourneyWidget(QOpenGLWidget):
             return -1
     
     def update_animation(self):
-        self.camera_angle = (self.camera_angle + 0.3) % 360
         self.time += 1
+
+        has_focus = self.selected_index >= 0 or self.hover_index >= 0
+        sway_amp = 11.0 if has_focus else self.camera_sway_amplitude
+        sway_speed = 0.065 if has_focus else self.camera_sway_speed
+        self.camera_angle = self.camera_base_angle + math.sin(self.time * sway_speed) * sway_amp
+
         self.update()

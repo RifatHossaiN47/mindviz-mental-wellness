@@ -1,13 +1,25 @@
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                             QTextEdit, QPushButton, QSpacerItem, QSizePolicy)
+from PyQt5.QtWidgets import (
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QTextEdit,
+    QPushButton,
+    QSpacerItem,
+    QSizePolicy,
+    QMessageBox,
+    QCheckBox,
+)
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QPalette, QColor
+from screens.camera_capture_dialog import CameraCaptureDialog
 
 class InputScreen(QWidget):
     def __init__(self, username="Guest", parent=None):
         super().__init__()
         self.app = parent
         self.username = username
+        self.face_image_base64 = None
         self.setup_ui()
     
     def setup_ui(self):
@@ -102,6 +114,76 @@ class InputScreen(QWidget):
             emoji_layout.addWidget(btn)
         
         layout.addLayout(emoji_layout)
+
+        # Optional face capture section
+        face_title = QLabel("Optional face image (camera):")
+        face_title.setFont(QFont("Arial", 13))
+        face_title.setStyleSheet("color: #666;")
+        layout.addWidget(face_title)
+
+        face_layout = QHBoxLayout()
+        face_layout.setSpacing(10)
+
+        self.btn_capture_face = QPushButton("📸 Capture Face")
+        self.btn_capture_face.setFont(QFont("Arial", 12, QFont.Bold))
+        self.btn_capture_face.setFixedHeight(45)
+        self.btn_capture_face.setCursor(Qt.PointingHandCursor)
+        self.btn_capture_face.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #1976D2;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 10px;
+            }
+            QPushButton:hover {
+                background-color: #1565C0;
+            }
+        """
+        )
+        self.btn_capture_face.clicked.connect(self.capture_face)
+        face_layout.addWidget(self.btn_capture_face)
+
+        self.btn_remove_face = QPushButton("Remove")
+        self.btn_remove_face.setFont(QFont("Arial", 12))
+        self.btn_remove_face.setFixedHeight(45)
+        self.btn_remove_face.setCursor(Qt.PointingHandCursor)
+        self.btn_remove_face.setEnabled(False)
+        self.btn_remove_face.setStyleSheet(
+            """
+            QPushButton {
+                background-color: white;
+                color: #555;
+                border: 2px solid #CCC;
+                border-radius: 8px;
+                padding: 10px;
+            }
+            QPushButton:hover {
+                background-color: #F5F5F5;
+            }
+            QPushButton:disabled {
+                color: #999;
+                border-color: #DDD;
+            }
+        """
+        )
+        self.btn_remove_face.clicked.connect(self.remove_face)
+        face_layout.addWidget(self.btn_remove_face)
+
+        layout.addLayout(face_layout)
+
+        self.face_status_label = QLabel("No face image captured")
+        self.face_status_label.setFont(QFont("Arial", 11))
+        self.face_status_label.setStyleSheet("color: #888;")
+        layout.addWidget(self.face_status_label)
+
+        self.face_consent_checkbox = QCheckBox(
+            "I consent to analyze my face image for emotional cues"
+        )
+        self.face_consent_checkbox.setFont(QFont("Arial", 11))
+        self.face_consent_checkbox.setStyleSheet("color: #555;")
+        layout.addWidget(self.face_consent_checkbox)
         
         layout.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Fixed))
         
@@ -180,16 +262,51 @@ class InputScreen(QWidget):
     def set_quick_text(self, text):
         self.text_input.setText(text)
         self.text_input.setFocus()
+
+    def capture_face(self):
+        dialog = CameraCaptureDialog(self)
+        if dialog.exec_():
+            image_b64 = dialog.get_image_base64()
+            if not image_b64:
+                QMessageBox.warning(
+                    self,
+                    "Capture Failed",
+                    "Could not encode captured image. Please try again.",
+                )
+                return
+
+            self.face_image_base64 = image_b64
+            self.face_status_label.setText("Face image captured and ready")
+            self.face_status_label.setStyleSheet("color: #2E7D32; font-weight: 600;")
+            self.btn_remove_face.setEnabled(True)
+
+    def remove_face(self):
+        self.face_image_base64 = None
+        self.face_status_label.setText("No face image captured")
+        self.face_status_label.setStyleSheet("color: #888;")
+        self.btn_remove_face.setEnabled(False)
+        self.face_consent_checkbox.setChecked(False)
     
     def analyze_state(self):
         user_text = self.text_input.toPlainText().strip()
         if not user_text:
-            from PyQt5.QtWidgets import QMessageBox
             QMessageBox.warning(self, "Empty Input", "Please share how you're feeling before analyzing.")
+            return
+
+        if self.face_image_base64 and not self.face_consent_checkbox.isChecked():
+            QMessageBox.warning(
+                self,
+                "Consent Required",
+                "Please confirm consent for face-image analysis or remove the image.",
+            )
             return
         
         # Show loading screen
-        self.app.show_loading_screen(user_text, self.username)
+        self.app.show_loading_screen(
+            user_text,
+            self.username,
+            face_image=self.face_image_base64,
+        )
     
     def show_journey(self):
         self.app.show_journey_screen(self.username)

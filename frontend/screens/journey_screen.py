@@ -11,6 +11,7 @@ class JourneyScreen(QWidget):
         self.app = parent
         self.username = username
         self.sessions = []
+        self.selected_index = -1
         self.load_sessions()
         self.setup_ui()
     
@@ -20,7 +21,8 @@ class JourneyScreen(QWidget):
             response = requests.get(f"http://localhost:8000/get-sessions/{self.username}", timeout=5)
             if response.status_code == 200:
                 data = response.json()
-                self.sessions = data.get('sessions', [])
+                sessions = data.get('sessions', [])
+                self.sessions = sorted(sessions, key=lambda item: item.get('date', ''))
                 print(f"[INFO] Loaded {len(self.sessions)} sessions")
         except Exception as e:
             print(f"[ERROR] Failed to load sessions: {e}")
@@ -36,6 +38,7 @@ class JourneyScreen(QWidget):
             try:
                 self.journey_widget = JourneyWidget(self.sessions)
                 self.journey_widget.point_clicked.connect(self.on_point_selected)
+                self.journey_widget.point_hovered.connect(self.on_point_hovered)
                 main_layout.addWidget(self.journey_widget, stretch=7)
             except Exception as e:
                 print(f"[ERROR] Failed to create journey: {e}")
@@ -152,7 +155,9 @@ class JourneyScreen(QWidget):
         explanation = QLabel(
             "💡 About Your Journey:\n\n"
             "The 3D path shows your mental wellness over time. "
-            "Each point represents a completed session.\n\n"
+            "Each point represents a completed session.\n"
+            "Hover any point to preview detailed metrics.\n"
+            "Click a point to pin full details.\n\n"
             "🔴 Red: High stress\n"
             "🟠 Orange: Moderate\n"
             "🟡 Yellow: Good\n"
@@ -270,39 +275,93 @@ class JourneyScreen(QWidget):
         
         # Simple linear trend
         return scores[-1] - scores[0]
-    
-    def on_point_selected(self, index):
-        """Update detail panel when a journey point is clicked"""
+
+    def _update_detail_panel(self, index, pinned=False):
+        """Populate detail panel with richer journey insights for one session."""
         if index < 0 or index >= len(self.sessions):
             self.detail_frame.setVisible(False)
             return
-        
+
         session = self.sessions[index]
         initial = session.get('initial_metrics', {})
         final = session.get('final_metrics', {})
-        tech = self.format_technique_name(session.get('technique', 'unknown'))
-        date = session.get('date', '')[:10]
-        
-        self.detail_title.setText(f"Session {index + 1}: {tech}")
-        self.detail_date.setText(f"Date: {date}")
-        
+        improvement = session.get('improvement', {})
+        tech_id = session.get('technique', 'unknown')
+        tech = self.format_technique_name(tech_id)
+        date = session.get('date', '')[:16].replace('T', ' ')
+
+        duration = session.get('duration', 1)
+        if not isinstance(duration, (int, float)):
+            duration = 1
+        duration = int(max(1, duration))
+
+        tech_count = sum(1 for s in self.sessions if s.get('technique') == tech_id)
+
         anx_b = int(initial.get('anxiety', 0.5) * 100)
         anx_a = int(final.get('anxiety', 0.5) * 100)
         mood_b = int(initial.get('mood', 0.5) * 100)
         mood_a = int(final.get('mood', 0.5) * 100)
         str_b = int(initial.get('stress', 0.5) * 100)
         str_a = int(final.get('stress', 0.5) * 100)
-        
+
         anx_arrow = "\u2193" if anx_a < anx_b else "\u2191" if anx_a > anx_b else "\u2192"
         mood_arrow = "\u2191" if mood_a > mood_b else "\u2193" if mood_a < mood_b else "\u2192"
         str_arrow = "\u2193" if str_a < str_b else "\u2191" if str_a > str_b else "\u2192"
-        
+
+        wellbeing_before = int(((1 - initial.get('anxiety', 0.5))
+                                + initial.get('mood', 0.5)
+                                + (1 - initial.get('stress', 0.5))) / 3 * 100)
+        wellbeing_after = int(((1 - final.get('anxiety', 0.5))
+                               + final.get('mood', 0.5)
+                               + (1 - final.get('stress', 0.5))) / 3 * 100)
+        wellbeing_change = wellbeing_after - wellbeing_before
+        wb_sign = "+" if wellbeing_change > 0 else ""
+
+        improvement_candidates = [
+            ("Anxiety", improvement.get('anxiety', 0)),
+            ("Mood", improvement.get('mood', 0)),
+            ("Stress", improvement.get('stress', 0)),
+        ]
+        best_metric, best_val = max(improvement_candidates, key=lambda item: item[1])
+        if best_val > 0.01:
+            insight = f"Best gain: {best_metric} improved {int(best_val * 100)}%"
+        elif best_val < -0.01:
+            insight = f"Watch point: {best_metric} dropped {int(abs(best_val) * 100)}%"
+        else:
+            insight = "Balanced session with steady metrics"
+
+        title_prefix = "Pinned" if pinned else "Hover"
+        self.detail_title.setText(f"{title_prefix} Session {index + 1}: {tech}")
+        self.detail_date.setText(f"Date: {date}")
         self.detail_metrics.setText(
             f"Anxiety:  {anx_b}% {anx_arrow} {anx_a}%\n"
             f"Mood:     {mood_b}% {mood_arrow} {mood_a}%\n"
-            f"Stress:   {str_b}% {str_arrow} {str_a}%"
+            f"Stress:   {str_b}% {str_arrow} {str_a}%\n"
+            f"Wellbeing: {wellbeing_before}% -> {wellbeing_after}% ({wb_sign}{wellbeing_change}%)\n"
+            f"Technique usage: {tech_count}x   Duration: {duration} min\n"
+            f"{insight}"
         )
         self.detail_frame.setVisible(True)
+    
+    def on_point_selected(self, index):
+        """Update detail panel when a journey point is clicked"""
+        self.selected_index = index
+        if index < 0 or index >= len(self.sessions):
+            self.detail_frame.setVisible(False)
+            return
+
+        self._update_detail_panel(index, pinned=True)
+
+    def on_point_hovered(self, index):
+        """Show quick detail updates while hovering when nothing is pinned."""
+        if self.selected_index >= 0:
+            return
+
+        if index < 0 or index >= len(self.sessions):
+            self.detail_frame.setVisible(False)
+            return
+
+        self._update_detail_panel(index, pinned=False)
     
     def go_back(self):
         self.app.show_input_screen(self.username)

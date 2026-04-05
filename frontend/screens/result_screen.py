@@ -83,6 +83,7 @@ class ResultScreen(QWidget):
         
         # --- Gemini Analysis Text Section ---
         analysis = self.result.get('metrics', {}).get('analysis', {})
+        face_signal = self.result.get('metrics', {}).get('face_signal', {})
         
         if analysis and analysis.get('summary'):
             # Primary emotion badge
@@ -99,6 +100,30 @@ class ResultScreen(QWidget):
                 """)
                 emotion_badge.setAlignment(Qt.AlignCenter)
                 right_layout.addWidget(emotion_badge)
+
+            # Optional face insight badge
+            if face_signal and face_signal.get('used'):
+                face_emotion = face_signal.get('emotion', 'Unknown')
+                face_conf = int(float(face_signal.get('confidence', 0.0)) * 100)
+                face_badge = QLabel(f"📷  Face Cue: {face_emotion} ({face_conf}% confidence)")
+                face_badge.setFont(QFont("Arial", 11, QFont.Bold))
+                face_badge.setStyleSheet("""
+                    background-color: #FFF3E0;
+                    border: 1px solid #FFCC80;
+                    border-radius: 12px;
+                    padding: 8px 12px;
+                    color: #E65100;
+                """)
+                face_badge.setAlignment(Qt.AlignCenter)
+                right_layout.addWidget(face_badge)
+
+                face_summary = face_signal.get('summary', '')
+                if face_summary:
+                    face_note = QLabel(f"Face note: {face_summary}")
+                    face_note.setWordWrap(True)
+                    face_note.setFont(QFont("Arial", 9))
+                    face_note.setStyleSheet("color: #8D6E63;")
+                    right_layout.addWidget(face_note)
             
             # Summary card
             summary_text = analysis.get('summary', '')

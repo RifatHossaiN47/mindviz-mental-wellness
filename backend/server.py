@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import Optional
 import uvicorn
 from modules.gemini_analyzer import analyze_with_gemini
 from modules.game_analyzer import analyze_game_metrics
@@ -24,6 +25,7 @@ app.add_middleware(
 class AnalyzeRequest(BaseModel):
     user_input: str
     username: str
+    face_image: Optional[str] = None
 
 class GameAnalyzeRequest(BaseModel):
     username: str
@@ -47,11 +49,13 @@ async def analyze(request: AnalyzeRequest):
         print("\n" + "="*60)
         print(f"[ANALYZE] Request from user: {request.username}")
         print(f"[ANALYZE] Input text: {request.user_input[:100]}...")
+        if request.face_image:
+            print(f"[ANALYZE] Face image attached: {len(request.face_image)} chars")
         print("="*60)
         
         # Step 1: AI Analysis (Gemini)
         print("[STEP 1] Starting Gemini analysis...")
-        metrics = analyze_with_gemini(request.user_input)
+        metrics = analyze_with_gemini(request.user_input, face_image=request.face_image)
         print(f"[STEP 1] ✓ Metrics received: {metrics}")
         
         # Step 2: Get recommendations
@@ -70,6 +74,7 @@ async def analyze(request: AnalyzeRequest):
             "metrics": metrics,
             "recommendations": recommendations,
             "visualization": visualization,
+            "source": "text_face" if metrics.get("face_signal", {}).get("used") else "text",
             "timestamp": datetime.now().isoformat()
         }
         print("[SUCCESS] Analysis complete! Sending response to frontend.")

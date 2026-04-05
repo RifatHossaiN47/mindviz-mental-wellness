@@ -5,12 +5,14 @@ import requests
 from utils.api_client import APIClient
 
 class LoadingScreen(QWidget):
-    def __init__(self, user_text, username, parent=None, game_data=None, duration_seconds=None):
+    def __init__(self, user_text, username, parent=None, game_data=None,
+                 duration_seconds=None, face_image=None):
         super().__init__()
         self.app = parent
         self.user_text = user_text
         self.username = username
         self.game_data = game_data
+        self.face_image = face_image          # base64 JPEG or None
         self.duration_seconds = duration_seconds if duration_seconds else 60
         self.duration_minutes = max(1, int(round(self.duration_seconds / 60)))
         self.progress = 0
@@ -154,12 +156,17 @@ class LoadingScreen(QWidget):
         try:
             print(f"[INFO] Sending to backend: {self.user_text[:50]}...")
             
+            payload = {
+                "user_input": self.user_text,
+                "username": self.username,
+            }
+            if self.face_image:
+                payload["face_image_base64"] = self.face_image
+                print("[INFO] Face image included in request")
+            
             response = requests.post(
                 "http://localhost:8000/analyze",
-                json={
-                    "user_input": self.user_text,
-                    "username": self.username
-                },
+                json=payload,
                 timeout=30
             )
             

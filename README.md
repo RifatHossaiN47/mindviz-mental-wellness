@@ -19,6 +19,7 @@ The system then recommends personalized techniques, visualizes your state as a 3
 
 - AI-powered emotional metric extraction (anxiety, mood, stress)
 - Gameplay-based mental state detection (reaction + behavior signals)
+- **Optional face image analysis** — upload or capture a photo for multimodal wellness indication
 - 3D mental garden that adapts to emotional metrics
 - Personalized recommendations from a 20-technique wellness library
 - Guided exercise sessions with animated, technique-specific widgets
@@ -51,6 +52,7 @@ MindViz/
 │   ├── requirements.txt
 │   └── modules/
 │       ├── gemini_analyzer.py
+│       ├── face_analyzer.py        ← NEW: Gemini Vision face emotion
 │       ├── game_analyzer.py
 │       ├── rag_system.py
 │       └── visualizer.py
@@ -60,11 +62,12 @@ MindViz/
 │   ├── screens/
 │   │   ├── welcome_screen.py
 │   │   ├── auth_screen.py
-│   │   ├── input_screen.py
+│   │   ├── input_screen.py         ← UPDATED: consent + image capture
+│   │   ├── camera_dialog.py        ← NEW: live webcam capture dialog
 │   │   ├── game_mode_screen.py
 │   │   ├── game_screen.py
-│   │   ├── loading_screen.py
-│   │   ├── result_screen.py
+│   │   ├── loading_screen.py       ← UPDATED: passes image to backend
+│   │   ├── result_screen.py        ← UPDATED: shows face badge + indicator
 │   │   ├── session_screen.py
 │   │   └── journey_screen.py
 │   ├── opengl/
@@ -158,12 +161,27 @@ Welcome -> Sign in or Guest -> Describe feelings -> Analyze -> Result -> Start r
 
 Welcome -> Play a Game Instead -> Select duration -> Play bubble game -> Analyze gameplay -> Result
 
+### Face Image Mode (Optional)
+
+On the input screen, tick **"Optional: include my face photo to improve wellness analysis"**,
+then choose one of:
+
+- **📁 Upload Photo** — select a JPEG/PNG from disk (max 5 MB)
+- **📸 Camera** — capture a live webcam frame (requires `opencv-python`)
+
+The photo is sent only to the Gemini Vision API for facial expression detection.  
+No image is ever written to disk.  
+Uncheck the consent box to opt out at any time.
+
 ## API Endpoints
 
 - GET /
   - Health check
 - POST /analyze
   - Text-based emotional analysis
+  - Optional fields: `face_image_b64` (base64 JPEG/PNG), `face_consent` (bool)
+  - When face data is provided the metrics are a weighted blend (text 65 %, face 35 %)
+  - Response includes `face_emotion`, `wellness_indicator`, and `disclaimer` fields
 - POST /analyze-game
   - Game-behavior emotional analysis
 - POST /save-session
@@ -176,8 +194,37 @@ Welcome -> Play a Game Instead -> Select duration -> Play bubble game -> Analyze
 - User/session data is stored locally in JSON files
 - Technique content is local text corpus
 - Gemini calls are only for analysis; fallback mode works without key
+- Face images are sent only to the Gemini API over HTTPS and are never stored on disk
+- Face analysis is strictly opt-in (requires explicit consent checkbox)
+- Disable face analysis at any time by unchecking the consent box
+
+## Face Analysis — Privacy & Safety Notes
+
+- **Not a medical diagnosis.** All outputs are informational wellness indicators only.
+  A disclaimer is displayed on every result screen.
+- **No local storage of images.** Photos are encoded in memory, transmitted to Gemini, and discarded.
+- **Opt-in only.** Consent checkbox on the input screen must be explicitly checked.
+- **Graceful degradation.** If the Gemini Vision API is unavailable, the API key is missing,
+  or the image cannot be processed, the app silently falls back to text-only analysis.
+
+## Optional: Camera Capture Setup
+
+Live webcam capture requires `opencv-python`:
+
+```bash
+pip install opencv-python
+```
+
+If not installed, you can still upload an image file using the **📁 Upload Photo** button.
 
 ## Testing and Validation
+
+Backend unit tests (no server required):
+
+```bash
+cd backend
+python -m pytest ../tests/test_face_analysis.py -v
+```
 
 Backend smoke test:
 

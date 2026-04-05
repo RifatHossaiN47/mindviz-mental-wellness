@@ -1,8 +1,10 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import Optional
 import uvicorn
 from modules.gemini_analyzer import analyze_with_gemini
+from modules.face_analyzer import analyze_face_emotion
 from modules.game_analyzer import analyze_game_metrics
 from modules.rag_system import get_recommendations
 from modules.visualizer import map_to_visualization
@@ -24,6 +26,8 @@ app.add_middleware(
 class AnalyzeRequest(BaseModel):
     user_input: str
     username: str
+    face_image_b64: Optional[str] = None  # base64-encoded JPEG/PNG (optional)
+    face_consent: bool = False             # must be True to process face image
 
 class GameAnalyzeRequest(BaseModel):
     username: str
@@ -49,11 +53,37 @@ async def analyze(request: AnalyzeRequest):
         print(f"[ANALYZE] Input text: {request.user_input[:100]}...")
         print("="*60)
         
-        # Step 1: AI Analysis (Gemini)
-        print("[STEP 1] Starting Gemini analysis...")
+        # Step 1: Text-based AI Analysis (Gemini)
+        print("[STEP 1] Starting Gemini text analysis...")
         metrics = analyze_with_gemini(request.user_input)
         print(f"[STEP 1] ✓ Metrics received: {metrics}")
-        
+
+        # Step 1b: Optional face emotion analysis
+        face_emotion = {"enabled": False}
+        if request.face_consent and request.face_image_b64:
+            print("[STEP 1b] Face consent given — analysing face image...")
+            face_emotion = analyze_face_emotion(request.face_image_b64)
+            if face_emotion.get("enabled"):
+                # Fuse: text 65 %, face 35 %
+                TEXT_W, FACE_W = 0.65, 0.35
+                metrics["anxiety"] = round(
+                    metrics["anxiety"] * TEXT_W + face_emotion["anxiety"] * FACE_W, 2
+                )
+                metrics["mood"] = round(
+                    metrics["mood"] * TEXT_W + face_emotion["mood"] * FACE_W, 2
+                )
+                metrics["stress"] = round(
+                    metrics["stress"] * TEXT_W + face_emotion["stress"] * FACE_W, 2
+                )
+                print(
+                    f"[STEP 1b] ✓ Fused metrics → "
+                    f"anxiety={metrics['anxiety']}  mood={metrics['mood']}  stress={metrics['stress']}"
+                )
+            else:
+                print("[STEP 1b] Face analysis unavailable — using text-only metrics.")
+        else:
+            print("[STEP 1b] No face image provided — text-only analysis.")
+
         # Step 2: Get recommendations
         print("[STEP 2] Getting recommendations based on metrics...")
         recommendations = get_recommendations(metrics)
@@ -65,12 +95,28 @@ async def analyze(request: AnalyzeRequest):
         print("[STEP 3] Mapping to visualization parameters...")
         visualization = map_to_visualization(metrics)
         print(f"[STEP 3] ✓ Visualization params: wellbeing={visualization['wellbeing']}, sky_color={visualization['sky_color'][:2]}...")
-        
+
+        # Wellness indicator (non-diagnostic label derived from fused metrics)
+        wellbeing_score = (1 - metrics["anxiety"] + metrics["mood"] + (1 - metrics["stress"])) / 3
+        if wellbeing_score >= 0.70:
+            wellness_indicator = "stable"
+        elif wellbeing_score >= 0.50:
+            wellness_indicator = "watch"
+        else:
+            wellness_indicator = "high-stress"
+
         result = {
             "metrics": metrics,
+            "face_emotion": face_emotion,
+            "wellness_indicator": wellness_indicator,
             "recommendations": recommendations,
             "visualization": visualization,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
+            "disclaimer": (
+                "⚠️ This wellness indicator is for informational purposes only "
+                "and is NOT a medical diagnosis. For mental health support please "
+                "consult a qualified healthcare professional."
+            ),
         }
         print("[SUCCESS] Analysis complete! Sending response to frontend.")
         print("="*60 + "\n")

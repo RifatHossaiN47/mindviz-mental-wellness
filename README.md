@@ -13,7 +13,7 @@ The system then recommends personalized techniques, visualizes your state as a 3
 - Practical daily check-in for stress, anxiety, and mood
 - Fast feedback loop: analyze -> practice -> re-check
 - Visual-first experience instead of plain text-only reporting
-- Local-first storage for user and session history
+- Local-first storage for user and session history.
 
 ## Core Features
 
